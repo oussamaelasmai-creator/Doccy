@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Plateforme documentaire</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">Cabinet</p>
+          <h1>Suivi documentaire</h1>
+        </div>
+        <nav>
+          <a href="#dashboard">Tableau</a>
+          <a href="#upload">Depot</a>
+          <a href="#search">Recherche</a>
+          <a href="#tasks">Taches</a>
+        </nav>
+        <div class="identity">
+          <span id="current-user">Utilisateur demo</span>
+          <small>Droits appliques aux resultats</small>
+          <small id="local-ai-status">IA locale: verification...</small>
+        </div>
+      </aside>
+
+      <main>
+        <section id="dashboard" class="section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">V1 locale</p>
+              <h2>Clients, documents, OCR et indexation</h2>
+            </div>
+            <button id="refresh-btn" class="secondary">Actualiser</button>
+          </div>
+          <div id="stats" class="stats-grid"></div>
+          <div class="split">
+            <form id="client-form" class="panel">
+              <h3>Nouveau client</h3>
+              <label>Nom<input name="name" required placeholder="Client ou cabinet" /></label>
+              <label>Contact<input name="contact" placeholder="Responsable" /></label>
+              <label>Email<input name="email" type="email" placeholder="contact@example.fr" /></label>
+              <button type="submit">Ajouter</button>
+            </form>
+            <form id="matter-form" class="panel">
+              <h3>Nouvelle affaire</h3>
+              <label>Client<select name="client_id" id="matter-client"></select></label>
+              <label>Nom<input name="name" required placeholder="Objet du dossier" /></label>
+              <label>Responsable<input name="responsible" placeholder="Collaborateur" /></label>
+              <button type="submit">Creer</button>
+            </form>
+          </div>
+        </section>
+
+        <section id="upload" class="section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Depot</p>
+              <h2>Importer et classer un document</h2>
+            </div>
+          </div>
+          <form id="upload-form" class="panel upload-panel">
+            <div class="form-grid">
+              <label>Client<select name="client_id" id="upload-client"></select></label>
+              <label>Affaire<select name="matter_id" id="upload-matter"></select></label>
+              <label>Type<select name="type">
+                <option>Contrat</option>
+                <option>Courrier</option>
+                <option>Piece</option>
+                <option>Note</option>
+                <option>Jugement</option>
+              </select></label>
+              <label>Responsable<input name="responsible" placeholder="Collaborateur" /></label>
+              <label>Date document<input name="document_date" type="date" /></label>
+              <label>Fichier<input name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt,.md,.csv" required /></label>
+            </div>
+            <button type="submit">Importer et indexer</button>
+            <p id="upload-feedback" class="feedback"></p>
+          </form>
+          <div class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Document</th>
+                    <th>Affaire</th>
+                    <th>Statut</th>
+                    <th>Qualite</th>
+                    <th>Pages</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="documents-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="search" class="section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Archives</p>
+              <h2>Recherche plein texte et semantique</h2>
+            </div>
+          </div>
+          <form id="search-form" class="panel search-panel">
+            <input name="q" placeholder="Ex. morsure de chien, facture impayee, clause de contrat" required />
+            <select name="client_id" id="search-client"><option value="">Tous les clients</option></select>
+            <select name="matter_id" id="search-matter"><option value="">Toutes les affaires</option></select>
+            <button type="submit">Rechercher</button>
+          </form>
+          <div id="search-results" class="results"></div>
+        </section>
+
+        <section id="tasks" class="section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Suivi</p>
+              <h2>Taches et alertes</h2>
+            </div>
+          </div>
+          <div class="split">
+            <form id="task-form" class="panel">
+              <h3>Nouvelle tache</h3>
+              <label>Affaire<select name="matter_id" id="task-matter"></select></label>
+              <label>Titre<input name="title" required placeholder="Action a realiser" /></label>
+              <label>Responsable<input name="assignee" placeholder="Collaborateur" /></label>
+              <label>Echeance<input name="due_date" type="date" /></label>
+              <button type="submit">Ajouter</button>
+            </form>
+            <div class="panel">
+              <h3>Alertes</h3>
+              <div id="alerts-list" class="stack"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Taches ouvertes</h3>
+            <div id="tasks-list" class="stack"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="text-dialog">
+      <article>
+        <button id="close-dialog" class="icon-button" aria-label="Fermer">x</button>
+        <h3 id="dialog-title">Texte extrait</h3>
+        <div id="dialog-content" class="document-text"></div>
+      </article>
+    </dialog>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

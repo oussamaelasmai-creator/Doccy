@@ -1,0 +1,6 @@
+# Optional local AI stack.
+# Install only in a virtual environment on the machine that will run OCR/semantic indexing.
+
+rapidocr
+onnxruntime
+sentence-transformers
