@@ -13,6 +13,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from .analysis import analysis_status, analyze_document, apply_analysis
 from .document_processing import ocr_status, process_document
 from .search import search_documents
 from .semantic import embed_text, embedding_status
@@ -199,6 +200,7 @@ def public_state() -> dict:
         "audit_logs": sorted(store["audit_logs"], key=lambda item: item["created_at"], reverse=True)[:25],
         "current_user": get_current_user(store),
         "ai_status": {
+            "analysis": analysis_status(),
             "embeddings": embedding_status(),
             "ocr": ocr_status(),
         },
@@ -213,6 +215,7 @@ def summarize(store: dict) -> dict:
             "matters": len(store["matters"]),
             "documents": len(documents),
             "indexed": sum(1 for doc in documents if doc["status"] == "indexed"),
+            "analyzed": sum(1 for doc in documents if doc.get("analysis_method")),
             "pending": sum(1 for doc in documents if doc["status"] in {"imported", "ocr_pending", "ocr_processing"}),
             "errors": sum(1 for doc in documents if doc["status"] in {"error", "low_quality"}),
             "open_tasks": sum(1 for task in store["tasks"] if task["status"] == "open"),
@@ -290,6 +293,8 @@ def create_document_from_upload(store: dict, fields: dict[str, str], uploaded: d
     path.write_bytes(uploaded["content"])
 
     result = process_document(path, str(uploaded.get("content_type") or ""))
+    user_type = fields.get("type") or "Auto"
+    keep_matter = bool(fields.get("matter_id"))
     document = {
         "id": document_id,
         "client_id": fields.get("client_id"),
@@ -297,9 +302,16 @@ def create_document_from_upload(store: dict, fields: dict[str, str], uploaded: d
         "filename": original_name,
         "stored_name": stored_name,
         "mime_type": uploaded.get("content_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream",
-        "type": fields.get("type") or "Document",
+        "title": original_name,
+        "type": "" if user_type == "Auto" else user_type,
+        "doc_type": "" if user_type == "Auto" else user_type,
         "responsible": fields.get("responsible") or "",
         "document_date": fields.get("document_date") or "",
+        "persons": [],
+        "summary": "",
+        "tags": [],
+        "analysis_method": "",
+        "analysis_confidence": 0.0,
         "status": result.status,
         "has_text_layer": result.has_text_layer,
         "ocr_required": result.ocr_required,
@@ -312,8 +324,14 @@ def create_document_from_upload(store: dict, fields: dict[str, str], uploaded: d
     }
     store["documents"].append(document)
     store["pages"] = [page for page in store["pages"] if page["document_id"] != document_id]
+    page_rows = []
     for page in result.pages:
-        store["pages"].append(page_record(document_id, page))
+        page_rows.append(page_record(document_id, page))
+    store["pages"].extend(page_rows)
+    if result.pages:
+        analysis = analyze_document(store, document, page_rows, keep_matter=keep_matter)
+        apply_analysis(document, analysis, keep_matter=keep_matter)
+        _sync_document_client_from_matter(store, document)
     if result.status in {"ocr_pending", "low_quality", "error"}:
         store["alerts"].append(
             {
@@ -334,6 +352,7 @@ def reprocess_document(store: dict, document_id: str) -> dict:
         return {"error": "Document introuvable."}
     path = UPLOAD_DIR / doc["stored_name"]
     result = process_document(path, doc.get("mime_type", ""))
+    keep_matter = bool(doc.get("matter_id"))
     doc.update(
         {
             "status": result.status,
@@ -347,10 +366,24 @@ def reprocess_document(store: dict, document_id: str) -> dict:
         }
     )
     store["pages"] = [page for page in store["pages"] if page["document_id"] != document_id]
+    page_rows = []
     for page in result.pages:
-        store["pages"].append(page_record(document_id, page))
+        page_rows.append(page_record(document_id, page))
+    store["pages"].extend(page_rows)
+    if result.pages:
+        analysis = analyze_document(store, doc, page_rows, keep_matter=keep_matter)
+        apply_analysis(doc, analysis, keep_matter=keep_matter)
+        _sync_document_client_from_matter(store, doc)
     audit(store, CURRENT_USER_ID, "reprocess", "document", document_id, {"status": result.status})
     return {"document": doc}
+
+
+def _sync_document_client_from_matter(store: dict, document: dict) -> None:
+    if document.get("client_id") or not document.get("matter_id"):
+        return
+    matter = next((item for item in store["matters"] if item["id"] == document["matter_id"]), None)
+    if matter:
+        document["client_id"] = matter.get("client_id")
 
 
 def safe_filename(value: str) -> str:

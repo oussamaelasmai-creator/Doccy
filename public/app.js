@@ -28,8 +28,13 @@ function renderAll() {
 }
 
 function renderAiStatus() {
+  const analysis = state.ai_status?.analysis;
   const embeddings = state.ai_status?.embeddings;
   const ocr = state.ai_status?.ocr;
+  const analysisLabel =
+    analysis?.provider === "ollama" || (analysis?.provider === "auto" && analysis?.ollama_available)
+      ? `Analyse locale Ollama (${analysis.ollama_model})`
+      : "Analyse locale par regles";
   const semantic = embeddings?.enabled ? `BGE-M3 actif (${embeddings.provider})` : "BGE-M3 non installe";
   const ocrLabel =
     ocr?.selected === "rapidocr"
@@ -39,7 +44,7 @@ function renderAiStatus() {
         : ocr?.selected === "tesseract"
           ? "Tesseract actif"
           : "OCR manquant";
-  $("#local-ai-status").textContent = `IA locale: ${ocrLabel}; ${semantic}`;
+  $("#local-ai-status").textContent = `IA locale: ${ocrLabel}; ${analysisLabel}; ${semantic}`;
 }
 
 function renderStats() {
@@ -48,6 +53,7 @@ function renderStats() {
     matters: "Affaires",
     documents: "Documents",
     indexed: "Indexes",
+    analyzed: "Analyses",
     semantic_pages: "Vectorises",
     pending: "En attente",
     errors: "A verifier",
@@ -61,7 +67,7 @@ function renderSelects() {
   fillSelect("#matter-client", state.clients, "Choisir un client");
   fillSelect("#upload-client", state.clients, "Choisir un client");
   fillSelect("#search-client", state.clients, "Tous les clients", true);
-  fillSelect("#upload-matter", state.matters, "Choisir une affaire");
+  fillSelect("#upload-matter", state.matters, "Auto / non classe", true);
   fillSelect("#search-matter", state.matters, "Toutes les affaires", true);
   fillSelect("#task-matter", state.matters, "Choisir une affaire");
 }
@@ -83,7 +89,12 @@ function renderDocuments() {
     .map((doc) => {
       const level = doc.status === "indexed" ? "" : doc.status === "error" ? "error" : "warning";
       return `<tr>
-        <td><strong>${escapeHtml(doc.filename)}</strong><div class="meta">${escapeHtml(doc.type)} - ${escapeHtml(doc.responsible || "Non assigne")}</div></td>
+        <td>
+          <strong>${escapeHtml(doc.title || doc.filename)}</strong>
+          <div class="meta">${escapeHtml(doc.filename)}</div>
+          <div class="meta">${escapeHtml(doc.type || doc.doc_type || "Type inconnu")} - ${escapeHtml(doc.responsible || "Non assigne")}</div>
+          ${renderDocInsights(doc)}
+        </td>
         <td>${escapeHtml(matterById[doc.matter_id]?.name || "Affaire inconnue")}</td>
         <td><span class="badge ${level}">${escapeHtml(statusLabel(doc.status))}</span></td>
         <td>${escapeHtml(qualityLabel(doc.quality))} (${Math.round((doc.confidence || 0) * 100)}%)${doc.message ? `<div class="meta">${escapeHtml(doc.message)}</div>` : ""}</td>
@@ -159,7 +170,7 @@ $("#upload-form").addEventListener("submit", async (event) => {
   const timeoutId = setTimeout(() => controller.abort(), 120000);
   submitButton.disabled = true;
   submitButton.textContent = "Traitement...";
-  $("#upload-feedback").textContent = "Import du fichier, controle de lisibilite et indexation...";
+  $("#upload-feedback").textContent = "Import, OCR, analyse locale, classement et indexation...";
   try {
     await fetch("/api/documents", {
       method: "POST",
@@ -255,8 +266,9 @@ function renderResults(results) {
     results
       .map(
         (result) => `<article class="result">
-          <h3>${escapeHtml(result.filename)}</h3>
-          <div class="meta">${escapeHtml(result.client)} - ${escapeHtml(result.matter)} - page ${result.page_number} - pertinence ${Math.round(result.score * 100)}%</div>
+          <h3>${escapeHtml(result.title || result.filename)}</h3>
+          <div class="meta">${escapeHtml(result.client)} - ${escapeHtml(result.matter)} - ${escapeHtml(result.document_type || "Document")} - page ${result.page_number} - pertinence ${Math.round(result.score * 100)}%</div>
+          ${result.summary ? `<p>${escapeHtml(result.summary)}</p>` : ""}
           <p>${escapeHtml(result.excerpt)}</p>
           <div class="actions">
             <a class="badge" href="/api/documents/${escapeAttr(result.document_id)}/download" target="_blank" rel="noreferrer">Ouvrir le document</a>
@@ -264,6 +276,14 @@ function renderResults(results) {
         </article>`,
       )
       .join("") || `<div class="result">Aucun resultat dans les dossiers autorises.</div>`;
+}
+
+function renderDocInsights(doc) {
+  const people = Array.isArray(doc.persons) && doc.persons.length ? `<div class="meta">Personnes: ${escapeHtml(doc.persons.join(", "))}</div>` : "";
+  const tags = Array.isArray(doc.tags) && doc.tags.length ? `<div class="meta">Tags: ${escapeHtml(doc.tags.join(", "))}</div>` : "";
+  const summary = doc.summary ? `<div class="meta">${escapeHtml(doc.summary)}</div>` : "";
+  const method = doc.analysis_method ? `<div class="meta">Analyse: ${escapeHtml(doc.analysis_method)} (${Math.round((doc.analysis_confidence || 0) * 100)}%)</div>` : "";
+  return `${people}${tags}${summary}${method}`;
 }
 
 function renderPageText(page) {

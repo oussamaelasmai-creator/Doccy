@@ -80,7 +80,7 @@ def search_documents(store: dict[str, Any], user: dict[str, Any], params: dict[s
         doc = docs.get(page["document_id"])
         if not doc or not _matches_filters(doc, params):
             continue
-        text = page.get("text", "")
+        text = _searchable_text(doc, page)
         tokens = tokenize(text)
         if not tokens:
             continue
@@ -109,7 +109,11 @@ def search_documents(store: dict[str, Any], user: dict[str, Any], params: dict[s
                 "exact_score": round(exact_score, 4),
                 "document_id": doc["id"],
                 "filename": doc["filename"],
-                "document_type": doc.get("type", ""),
+                "title": doc.get("title") or doc["filename"],
+                "document_type": doc.get("doc_type") or doc.get("type", ""),
+                "summary": doc.get("summary", ""),
+                "persons": doc.get("persons", []),
+                "tags": doc.get("tags", []),
                 "status": doc["status"],
                 "page_number": page["page_number"],
                 "excerpt": make_excerpt(text, query_tokens, expanded),
@@ -152,10 +156,13 @@ def _cosine(left: Counter[str], right: Counter[str]) -> float:
 
 
 def _matches_filters(doc: dict[str, Any], params: dict[str, str]) -> bool:
-    for field in ("client_id", "matter_id", "type", "responsible"):
+    for field in ("client_id", "matter_id", "responsible"):
         value = params.get(field)
         if value and doc.get(field) != value:
             return False
+    doc_type = params.get("type") or params.get("doc_type")
+    if doc_type and doc.get("type") != doc_type and doc.get("doc_type") != doc_type:
+        return False
     date_from = params.get("from")
     date_to = params.get("to")
     document_date = doc.get("document_date") or ""
@@ -170,3 +177,16 @@ def _can_access_doc(doc: dict[str, Any], allowed_matter_ids: set[str], allowed_c
     matter_id = doc.get("matter_id")
     client_id = doc.get("client_id")
     return matter_id in allowed_matter_ids or client_id in allowed_client_ids or (not matter_id and not client_id)
+
+
+def _searchable_text(doc: dict[str, Any], page: dict[str, Any]) -> str:
+    parts = [
+        doc.get("title", ""),
+        doc.get("type", ""),
+        doc.get("doc_type", ""),
+        doc.get("summary", ""),
+        " ".join(doc.get("persons", [])),
+        " ".join(doc.get("tags", [])),
+        page.get("text", ""),
+    ]
+    return "\n".join(part for part in parts if part)

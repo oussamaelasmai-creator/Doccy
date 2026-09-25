@@ -10,6 +10,7 @@ Prototype local sans dependances externes obligatoires pour tester :
 - OCR des PDF scannes via rendu image `pdftoppm` + RapidOCR ou Tesseract ;
 - essais de modes OCR et corrections legeres d'inclinaison pour choisir le meilleur resultat ;
 - controle qualite base sur les confiances OCR et la lisibilite du texte, pas seulement sur la presence de caracteres ;
+- analyse locale automatique : titre, type, date, personnes, resume, tags et classement dans une affaire ;
 - indexation par page ;
 - recherche plein texte + rapprochement semantique simple ;
 - filtrage des resultats selon les droits de l'utilisateur de demonstration.
@@ -110,6 +111,28 @@ Pour recalculer OCR et embeddings sur les documents deja importes :
 ```bash
 python3 scripts/reindex_all.py
 ```
+
+## Analyse et classement local type handoff
+
+Par defaut, l'application n'envoie rien a un service externe. Apres OCR, elle applique une analyse locale par regles :
+
+- titre lisible ;
+- type de document ;
+- date du document ;
+- personnes detectees ;
+- resume court ;
+- tags ;
+- affaire la plus probable si aucune affaire n'a ete imposee au depot.
+
+Pour ajouter une couche LLM locale sans OpenAI, installer Ollama puis lancer un modele local compatible avec le francais :
+
+```bash
+ollama serve
+ollama pull mistral-small3.2
+DOCUMENT_ANALYSIS_PROVIDER=ollama DOCUMENT_ANALYSIS_MODEL=mistral-small3.2 python -m app.server
+```
+
+Si Ollama n'est pas disponible ou ne repond pas, l'application garde automatiquement l'analyse locale par regles.
 
 ## Chemin de deploiement
 

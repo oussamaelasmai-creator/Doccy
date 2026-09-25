@@ -10,7 +10,7 @@ DEFAULT_EMBEDDING_MODEL = "BAAI/bge-m3"
 
 
 def embedding_status() -> dict[str, Any]:
-    provider = os.environ.get("DOCUMENT_EMBEDDING_PROVIDER", "auto").lower()
+    provider = os.environ.get("DOCUMENT_EMBEDDING_PROVIDER", "off").lower()
     if provider == "off":
         return {"enabled": False, "provider": "off", "model": None}
     if _flag_embedding_available():
@@ -26,7 +26,7 @@ def embedding_status() -> dict[str, Any]:
 
 
 def embed_text(text: str) -> list[float] | None:
-    if not text.strip() or os.environ.get("DOCUMENT_EMBEDDING_PROVIDER", "auto").lower() == "off":
+    if not text.strip() or os.environ.get("DOCUMENT_EMBEDDING_PROVIDER", "off").lower() == "off":
         return None
     text = text[:24_000]
     try:
