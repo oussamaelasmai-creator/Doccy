@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -31,31 +32,288 @@ MONTHS = {
     "decembre": 12,
     "décembre": 12,
 }
-DOC_TYPE_KEYWORDS = {
-    "Certificat medical": {
-        "certificat",
-        "medical",
-        "patiente",
-        "examen",
-        "plaie",
-        "incapacite",
-        "urgence",
-        "antitetanique",
-        "rabique",
+DOC_TYPE_RULES = [
+    {
+        "type": "Avis d'imposition",
+        "phrases": {
+            "avis d imposition",
+            "impot sur le revenu",
+            "revenu fiscal de reference",
+            "direction generale des finances publiques",
+            "numero fiscal",
+            "avis d impot",
+        },
+        "keywords": {"impot", "imposition", "fiscal", "dgfip", "revenu", "declarant", "foyer", "reference"},
     },
-    "Facture": {"facture", "montant", "total", "tva", "paiement", "echeance", "fournisseur"},
-    "Jugement": {"jugement", "tribunal", "ordonne", "condamne", "audience", "greffe", "appel"},
-    "Attestation": {"atteste", "attestation", "honneur", "certifie", "temoignage"},
-    "Contrat": {"contrat", "clause", "parties", "obligation", "signature", "accord"},
-    "Courrier": {"madame", "monsieur", "objet", "salutations", "courrier", "lettre"},
-    "Piece d'identite": {"passeport", "identite", "republique", "nationalite", "naissance"},
-}
+    {
+        "type": "Taxe fonciere",
+        "phrases": {"taxe fonciere", "proprietes baties", "avis de taxe fonciere"},
+        "keywords": {"taxe", "fonciere", "proprietaire", "cadastre", "commune"},
+    },
+    {
+        "type": "Taxe d'habitation",
+        "phrases": {"taxe d habitation", "avis de taxe d habitation"},
+        "keywords": {"taxe", "habitation", "residence", "logement"},
+    },
+    {
+        "type": "Declaration fiscale",
+        "phrases": {"declaration des revenus", "declaration fiscale", "formulaire 2042"},
+        "keywords": {"declaration", "revenus", "fiscal", "impot", "charges", "foyer"},
+    },
+    {
+        "type": "Attestation fiscale",
+        "phrases": {"attestation fiscale", "certificat fiscal", "regularite fiscale"},
+        "keywords": {"attestation", "fiscale", "impot", "regularite"},
+    },
+    {
+        "type": "Justificatif de domicile",
+        "phrases": {"justificatif de domicile", "attestation de domicile", "domicilie a"},
+        "keywords": {"domicile", "adresse", "logement", "electricite", "gaz", "eau", "internet", "telephone"},
+    },
+    {
+        "type": "Quittance de loyer",
+        "phrases": {"quittance de loyer", "recu de loyer"},
+        "keywords": {"quittance", "loyer", "locataire", "bailleur", "occupation"},
+    },
+    {
+        "type": "Bail",
+        "phrases": {"contrat de bail", "bail d habitation", "bail commercial"},
+        "keywords": {"bail", "locataire", "bailleur", "loyer", "depot", "garantie"},
+    },
+    {
+        "type": "Attestation d'assurance",
+        "phrases": {"attestation d assurance", "certificat d assurance", "responsabilite civile"},
+        "keywords": {"assurance", "assure", "police", "garantie", "sinistre"},
+    },
+    {
+        "type": "Releve bancaire",
+        "phrases": {"releve de compte", "releve bancaire", "extrait de compte"},
+        "keywords": {"releve", "banque", "compte", "debit", "credit", "solde", "iban"},
+    },
+    {
+        "type": "RIB",
+        "phrases": {"releve d identite bancaire", "identite bancaire"},
+        "keywords": {"rib", "iban", "bic", "titulaire", "domiciliation"},
+    },
+    {
+        "type": "Bulletin de salaire",
+        "phrases": {"bulletin de salaire", "fiche de paie", "bulletin de paie"},
+        "keywords": {"salaire", "brut", "net", "cotisations", "employeur", "salarie", "urssaf"},
+    },
+    {
+        "type": "Contrat de travail",
+        "phrases": {"contrat de travail", "cdi", "cdd"},
+        "keywords": {"employeur", "salarie", "poste", "remuneration", "periode", "essai"},
+    },
+    {
+        "type": "Attestation employeur",
+        "phrases": {"attestation employeur", "certificat de travail"},
+        "keywords": {"employeur", "emploi", "travail", "salarie", "atteste"},
+    },
+    {
+        "type": "Solde de tout compte",
+        "phrases": {"solde de tout compte", "recu pour solde"},
+        "keywords": {"solde", "rupture", "indemnite", "conges", "preavis"},
+    },
+    {
+        "type": "Extrait Kbis",
+        "phrases": {"extrait kbis", "registre du commerce", "rcs"},
+        "keywords": {"kbis", "rcs", "greffe", "siret", "siren", "societe"},
+    },
+    {
+        "type": "Statuts de societe",
+        "phrases": {"statuts de la societe", "statuts constitutifs"},
+        "keywords": {"statuts", "associes", "capital", "siege", "gerant", "president"},
+    },
+    {
+        "type": "Proces-verbal d'assemblee",
+        "phrases": {"proces verbal d assemblee", "pv d assemblee", "assemblee generale"},
+        "keywords": {"assemblee", "resolution", "associes", "vote", "proces", "verbal"},
+    },
+    {
+        "type": "Facture",
+        "phrases": {"facture n", "numero de facture", "facture du", "total ttc", "total ht"},
+        "keywords": {"facture", "tva", "ttc", "ht", "fournisseur", "client", "designation"},
+    },
+    {
+        "type": "Facture d'energie",
+        "phrases": {"facture d electricite", "facture de gaz", "facture d energie", "adresse de fourniture"},
+        "keywords": {"electricite", "gaz", "energie", "kwh", "consommation", "fourniture", "domicile"},
+    },
+    {
+        "type": "Devis",
+        "phrases": {"devis n", "bon pour accord", "validite du devis"},
+        "keywords": {"devis", "estimation", "prestation", "validite", "acompte"},
+    },
+    {
+        "type": "Bon de commande",
+        "phrases": {"bon de commande", "commande n"},
+        "keywords": {"commande", "reference", "livraison", "quantite"},
+    },
+    {
+        "type": "Recu",
+        "phrases": {"recu de paiement", "recu fiscal", "recu pour"},
+        "keywords": {"recu", "paiement", "versement", "don", "acquitte"},
+    },
+    {
+        "type": "Mise en demeure",
+        "phrases": {"mise en demeure", "lettre de mise en demeure"},
+        "keywords": {"demeure", "sommation", "delai", "regulariser", "defaut"},
+    },
+    {
+        "type": "Relance",
+        "phrases": {"lettre de relance", "relance amiable"},
+        "keywords": {"relance", "impaye", "retard", "paiement", "echeance"},
+    },
+    {
+        "type": "Jugement",
+        "phrases": {"jugement rendu", "au nom du peuple francais", "tribunal judiciaire"},
+        "keywords": {"jugement", "tribunal", "ordonne", "condamne", "audience", "greffe", "appel"},
+    },
+    {
+        "type": "Assignation",
+        "phrases": {"assignation a comparaitre", "fait assignation"},
+        "keywords": {"assignation", "huissier", "commissaire", "justice", "comparaitre"},
+    },
+    {
+        "type": "Convocation",
+        "phrases": {"convocation a", "vous etes convoque"},
+        "keywords": {"convocation", "audience", "rendez", "comparaitre", "date"},
+    },
+    {
+        "type": "Proces-verbal",
+        "phrases": {"proces verbal", "pv de"},
+        "keywords": {"proces", "verbal", "constat", "infraction", "audition"},
+    },
+    {
+        "type": "Acte de naissance",
+        "phrases": {"acte de naissance", "extrait d acte de naissance"},
+        "keywords": {"naissance", "ne", "nee", "etat", "civil", "filiation"},
+    },
+    {
+        "type": "Acte de mariage",
+        "phrases": {"acte de mariage", "extrait d acte de mariage"},
+        "keywords": {"mariage", "epoux", "epouse", "celebre", "etat", "civil"},
+    },
+    {
+        "type": "Acte de deces",
+        "phrases": {"acte de deces", "extrait d acte de deces"},
+        "keywords": {"deces", "decede", "defunt", "etat", "civil"},
+    },
+    {
+        "type": "Livret de famille",
+        "phrases": {"livret de famille"},
+        "keywords": {"livret", "famille", "epoux", "enfant", "naissance"},
+    },
+    {
+        "type": "Piece d'identite",
+        "phrases": {"carte nationale d identite", "piece d identite"},
+        "keywords": {"identite", "republique", "nationalite", "naissance", "sexe"},
+    },
+    {
+        "type": "Passeport",
+        "phrases": {"passeport", "passport"},
+        "keywords": {"passeport", "passport", "nationalite", "delivrance", "expiration"},
+    },
+    {
+        "type": "Titre de sejour",
+        "phrases": {"titre de sejour", "carte de sejour"},
+        "keywords": {"sejour", "prefecture", "etranger", "validite"},
+    },
+    {
+        "type": "Permis de conduire",
+        "phrases": {"permis de conduire"},
+        "keywords": {"permis", "conduire", "categories", "delivrance"},
+    },
+    {
+        "type": "Certificat medical",
+        "phrases": {"certificat medical", "certificat medical initial"},
+        "keywords": {"certificat", "medical", "patiente", "examen", "plaie", "incapacite", "urgence", "rabique"},
+    },
+    {
+        "type": "Ordonnance medicale",
+        "phrases": {"ordonnance medicale", "prescription medicale"},
+        "keywords": {"ordonnance", "prescription", "medicament", "posologie", "pharmacie"},
+    },
+    {
+        "type": "Compte rendu medical",
+        "phrases": {"compte rendu medical", "compte-rendu medical"},
+        "keywords": {"compte", "rendu", "medical", "diagnostic", "examen", "hospitalisation"},
+    },
+    {
+        "type": "Attestation",
+        "phrases": {"attestation sur l honneur", "j atteste", "atteste sur l honneur"},
+        "keywords": {"atteste", "attestation", "honneur", "certifie", "temoignage"},
+    },
+    {
+        "type": "Contrat",
+        "phrases": {"contrat de", "les parties conviennent"},
+        "keywords": {"contrat", "clause", "parties", "obligation", "signature", "accord"},
+    },
+    {
+        "type": "Courrier administratif",
+        "phrases": {"objet :", "reference :", "nos ref", "vos ref"},
+        "keywords": {"madame", "monsieur", "objet", "courrier", "demande", "administration"},
+    },
+    {
+        "type": "Note",
+        "phrases": {"note interne", "note d analyse"},
+        "keywords": {"note", "analyse", "dossier", "synthese"},
+    },
+]
 TAG_KEYWORDS = {
     "morsure": {"morsure", "chien", "animal", "crocs", "carnivore", "mordeur", "plaie"},
     "medical": {"medical", "patiente", "urgence", "traitement", "incapacite"},
-    "recouvrement": {"recouvrement", "creance", "impaye", "facture", "relance"},
+    "recouvrement": {"recouvrement", "creance", "impaye", "relance", "contentieux"},
+    "facture": {"facture", "tva", "ttc", "ht"},
+    "energie": {"electricite", "gaz", "energie", "kwh", "consommation"},
     "contrat": {"contrat", "clause", "signature", "obligation"},
     "jugement": {"jugement", "tribunal", "audience", "greffe"},
+    "fiscal": {"impot", "imposition", "fiscal", "dgfip", "taxe"},
+    "banque": {"banque", "iban", "bic", "compte", "solde"},
+    "identite": {"identite", "passeport", "sejour", "nationalite"},
+    "domicile": {"domicile", "adresse", "loyer", "bail", "quittance"},
+    "travail": {"salaire", "employeur", "salarie", "travail"},
+    "societe": {"societe", "kbis", "rcs", "siren", "statuts"},
+}
+NON_PERSON_TERMS = {
+    "ADMINISTRATION",
+    "ARGENTEUIL",
+    "ASNIERES",
+    "AUTRES",
+    "BANQUE",
+    "CENTRE",
+    "CEDEX",
+    "CHARGES",
+    "COMPTE",
+    "COMPLEMENTAIRES",
+    "CREANCIER",
+    "DEDUCTIBLES",
+    "DIRECTION",
+    "EPARGNE",
+    "FINANCES",
+    "FLACHAT",
+    "GENERALE",
+    "GÉNÉRALE",
+    "IMPOT",
+    "IMPOTS",
+    "IMPOSITION",
+    "INFORMATIONS",
+    "NETTE",
+    "PLAFOND",
+    "PUBLIQUES",
+    "REVENU",
+    "REVENUS",
+    "SEINE",
+    "SERVICE",
+    "SIP",
+    "SOMME",
+    "SOURCE",
+    "TOTAL",
+    "TRESOR",
+    "TRÉSOR",
+    "TTC",
+    "TVA",
 }
 MATTER_HINTS = {
     "chien": {"chien", "animal", "carnivore", "crocs", "morsure", "mordeur", "plaie", "attaque", "agression"},
@@ -109,7 +367,7 @@ def apply_analysis(document: dict[str, Any], analysis: DocumentAnalysis, keep_ma
     document["tags"] = analysis.tags
     document["analysis_method"] = analysis.method
     document["analysis_confidence"] = analysis.confidence
-    if analysis.matter_id and not keep_matter:
+    if not keep_matter:
         document["matter_id"] = analysis.matter_id
 
 
@@ -129,7 +387,7 @@ def _merge_analysis(ollama: DocumentAnalysis, rules: DocumentAnalysis) -> Docume
 
 def _analyze_with_rules(store: dict[str, Any], document: dict[str, Any], text: str, keep_matter: bool) -> DocumentAnalysis:
     tokens = set(tokenize(text))
-    doc_type = _detect_doc_type(tokens) or document.get("type") or "Document"
+    doc_type = _detect_doc_type(text, tokens) or document.get("type") or "Document"
     doc_date = _extract_date(text) or document.get("document_date") or ""
     persons = _extract_persons(text)
     tags = _extract_tags(tokens, doc_type)
@@ -215,13 +473,25 @@ def _document_text(pages: list[dict[str, Any]]) -> str:
     return "\n\n".join(chunks)
 
 
-def _detect_doc_type(tokens: set[str]) -> str:
+def _detect_doc_type(text: str, tokens: set[str]) -> str:
+    normalized_text = _normalize_text(text)
     scored = []
-    for doc_type, keywords in DOC_TYPE_KEYWORDS.items():
-        hits = len(tokens & keywords)
-        if hits:
-            scored.append((hits, doc_type))
-    return max(scored, default=(0, ""))[1]
+    for priority, rule in enumerate(DOC_TYPE_RULES):
+        phrase_hits = sum(1 for phrase in rule["phrases"] if phrase in normalized_text)
+        keyword_hits = len(tokens & rule["keywords"])
+        score = phrase_hits * 8 + keyword_hits
+        if rule["type"] == "Facture" and _looks_like_tax_document(normalized_text, tokens):
+            score -= 8
+        if rule["type"] == "Facture" and _looks_like_energy_invoice(normalized_text, tokens):
+            score -= 14
+        if rule["type"] == "Facture d'energie" and phrase_hits:
+            score += 10
+        if score > 0:
+            scored.append((score, -priority, rule["type"]))
+    if not scored:
+        return ""
+    best_score, _, best_type = max(scored)
+    return best_type if best_score >= 2 else ""
 
 
 def _extract_date(text: str) -> str:
@@ -260,13 +530,30 @@ def _extract_persons(text: str) -> list[str]:
     seen_keys = set()
     for candidate in candidates:
         value = re.sub(r"\s+", " ", candidate.replace(" - ", " ")).strip(" .,:;-")
-        if len(value) < 4 or value.lower() in {"service des urgences"} or value.startswith("Affaire "):
+        if _looks_like_non_person(value):
             continue
         key = re.sub(r"^(?:dr|docteur|maître|maitre)\s+", "", value.lower())
         if key not in seen_keys:
             cleaned.append(value)
             seen_keys.add(key)
     return cleaned[:10]
+
+
+def _looks_like_non_person(value: str) -> bool:
+    if len(value) < 4 or value.lower() in {"service des urgences"} or value.startswith("Affaire "):
+        return True
+    if len(value) > 60:
+        return True
+    if any(len(token) > 24 for token in re.findall(r"[A-Za-zÀ-ÿ]+", value)):
+        return True
+    upper_tokens = {token.upper() for token in re.findall(r"[A-Za-zÀ-ÿ]+", value)}
+    if upper_tokens & NON_PERSON_TERMS:
+        return True
+    if value.upper() == value and len(upper_tokens) <= 2:
+        endings = {"DES", "DE", "DU", "SUR", "SOUS", "BP", "AV", "RUE"}
+        if upper_tokens & endings:
+            return True
+    return False
 
 
 def _extract_tags(tokens: set[str], doc_type: str) -> list[str]:
@@ -294,7 +581,8 @@ def _classify_matter(store: dict[str, Any], text: str, tokens: set[str], tags: l
         if score > best_score:
             best_id = matter["id"]
             best_score = score
-    if best_score >= 0.08:
+    minimum_score = 0.22 if "fiscal" in tags else 0.14
+    if best_score >= minimum_score:
         return best_id, best_score
     return None, 0.0
 
@@ -360,3 +648,35 @@ def _string_list(value: Any, limit: int) -> list[str]:
 def _date_or_empty(value: Any) -> str:
     text = _string(value)
     return text if re.fullmatch(r"(?:19|20)\d{2}-[01]\d-[0-3]\d", text) else ""
+
+
+def _normalize_text(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    value = value.replace("œ", "oe").replace("æ", "ae")
+    value = re.sub(r"[^a-zA-Z0-9]+", " ", value.lower())
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _looks_like_tax_document(normalized_text: str, tokens: set[str]) -> bool:
+    tax_phrases = {
+        "avis d imposition",
+        "impot sur le revenu",
+        "revenu fiscal de reference",
+        "direction generale des finances publiques",
+        "numero fiscal",
+        "taxe fonciere",
+        "taxe d habitation",
+    }
+    if any(phrase in normalized_text for phrase in tax_phrases):
+        return True
+    return len(tokens & {"impot", "imposition", "fiscal", "dgfip", "taxe", "declarant"}) >= 2
+
+
+def _looks_like_energy_invoice(normalized_text: str, tokens: set[str]) -> bool:
+    energy_phrases = {"facture d electricite", "facture de gaz", "adresse de fourniture", "point de livraison"}
+    if any(phrase in normalized_text for phrase in energy_phrases):
+        return True
+    return len(tokens & {"electricite", "gaz", "energie", "kwh", "consommation", "fourniture"}) >= 2
+    "EUR",
+    "FACTURE",

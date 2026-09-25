@@ -299,6 +299,7 @@ def create_document_from_upload(store: dict, fields: dict[str, str], uploaded: d
         "id": document_id,
         "client_id": fields.get("client_id"),
         "matter_id": fields.get("matter_id"),
+        "matter_locked": keep_matter,
         "filename": original_name,
         "stored_name": stored_name,
         "mime_type": uploaded.get("content_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream",
@@ -352,7 +353,7 @@ def reprocess_document(store: dict, document_id: str) -> dict:
         return {"error": "Document introuvable."}
     path = UPLOAD_DIR / doc["stored_name"]
     result = process_document(path, doc.get("mime_type", ""))
-    keep_matter = bool(doc.get("matter_id"))
+    keep_matter = bool(doc.get("matter_locked"))
     doc.update(
         {
             "status": result.status,
